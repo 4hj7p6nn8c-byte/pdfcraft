@@ -2279,3 +2279,7 @@ scroll speed	Fast	Hızlı
 	Ink sensitivity	Mürekkep hassasiyeti
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	Çerçevede imza bulunamadı. Çerçeveyi imzanın üzerine taşıyın veya mürekkep hassasiyetini artırın.
 	Couldn't use the photo: {e}	Fotoğraf kullanılamadı: {e}
+
+# Fork searchable-copy command
+	Save as New Searchable PDF	Yeni aranabilir PDF olarak kaydet
+	Save as New Searchable PDF…	Yeni aranabilir PDF olarak kaydet…

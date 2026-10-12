@@ -1,5 +1,4 @@
-//! Community links: the Discord button is one click away everywhere; Help menu, About dialog and
-//! home screen open the ArtCraft and PdfCraft pages.
+//! Project links in Help, About and Home; Discord invitations are not exposed.
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
@@ -18,24 +17,26 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, P
 }
 
 #[test]
-fn discord_button_in_the_top_bar_opens_discord() {
+fn discord_links_are_not_exposed() {
     let mut h = harness(|_| {});
-    h.get_by_label("Discord").click();
-    h.run_steps(2);
-    assert_eq!(h.state().last_opened_url.as_deref(), Some(links::DISCORD));
-    assert_eq!(links::DISCORD, "https://discord.gg/artcraft");
+    assert_eq!(h.query_all_by_label("Discord").count(), 0);
+    assert_eq!(h.query_all_by_label("Join our Discord").count(), 0);
+    assert!(pdfcraft_engine::commands::command("help.discord").is_none());
+    assert!(links::for_command("help.discord").is_none());
+    h.state_mut().dialog = Some(Dialog::About);
+    h.run_steps(4);
+    assert_eq!(h.query_all_by_label("Join our Discord").count(), 0);
 }
 
 #[test]
 fn home_screen_links() {
     for (label, url) in [
-        ("Join our Discord", links::DISCORD),
         ("PdfCraft web page", "https://getartcraft.com/apps/pdfcraft"),
         ("PdfCraft on GitHub", "https://github.com/storytold/pdfcraft"),
         ("ArtCraft website", "https://getartcraft.com"),
     ] {
         let mut h = harness(|_| {});
-        h.get_by_label("Join the ArtCraft community");
+        h.get_by_label("PdfCraft logo");
         h.get_by_label(label).click();
         h.run_steps(2);
         assert_eq!(h.state().last_opened_url.as_deref(), Some(url), "{label}");
@@ -50,10 +51,11 @@ fn about_dialog_shows_the_brand_and_links() {
         app.open_bytes("one.pdf", None, pdf.to_vec()).unwrap();
         app.dialog = Some(Dialog::About);
     });
-    assert!(h.query_all_by_label("ArtCraft").count() >= 2, "the mark and the wordmark (alt text)");
-    h.get_by_label("Join our Discord").click();
+    h.get_by_label("PdfCraft logo");
+    h.get_by_label("ArtCraft");
+    h.get_by_label("PdfCraft web page").click();
     h.run_steps(2);
-    assert_eq!(h.state().last_opened_url.as_deref(), Some(links::DISCORD));
+    assert_eq!(h.state().last_opened_url.as_deref(), Some(links::APP_PAGE));
 }
 
 #[test]
@@ -99,4 +101,14 @@ fn about_dialog_has_contributors_and_models_tabs() {
     settled(&mut h, "Models").click();
     h.run_steps(4);
     assert!(h.query_all_by_label("Anthropic").count() >= 1);
+}
+
+#[cfg(feature = "embedded-ocr")]
+#[test]
+fn about_makes_embedded_ocr_attribution_and_licences_readable() {
+    let mut h = harness(|app| app.dialog = Some(Dialog::About));
+    h.get_by_label("OCR · CC-BY-SA-4.0").click();
+    h.run_steps(4);
+    let licences = pdfcraft_engine::ocr::embedded_model_licences().unwrap();
+    h.get_by_label(licences);
 }

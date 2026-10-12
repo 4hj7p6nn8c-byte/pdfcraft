@@ -22,6 +22,28 @@ pub const RECOGNITION_MODEL: &str = "text-recognition.rten";
 /// output classes follow this order. The ocrs crate's own copy has an `E` where the training had
 /// `€`, which made a scanned "€250" read as "E250".
 pub const ALPHABET: &str = " 0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~€ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+#[cfg(feature = "embedded-models")]
+const EMBEDDED_DETECTION: &[u8] = include_bytes!("../../../assets/models/text-detection.rten");
+#[cfg(feature = "embedded-models")]
+const EMBEDDED_RECOGNITION: &[u8] = include_bytes!("../../../assets/models/text-recognition.rten");
+
+/// Attribution and full model licences included in builds with embedded OCR, readable in About.
+pub fn embedded_model_licences() -> Option<&'static str> {
+    #[cfg(feature = "embedded-models")]
+    {
+        Some(concat!(
+            include_str!("../../../assets/models/ATTRIBUTION.txt"),
+            "\n\ntext-detection.rten.LICENCE.txt\n\n",
+            include_str!("../../../assets/models/text-detection.rten.LICENCE.txt"),
+            "\n\ntext-recognition.rten.LICENCE.txt\n\n",
+            include_str!("../../../assets/models/text-recognition.rten.LICENCE.txt"),
+        ))
+    }
+    #[cfg(not(feature = "embedded-models"))]
+    {
+        None
+    }
+}
 
 /// The languages the models read (ISO 639-1); all use the Latin alphabet without accents.
 pub const LANGUAGES: &[(&str, &str)] = &[("en", "English")];
@@ -111,9 +133,13 @@ pub struct Ocr {
 impl Ocr {
     pub fn load(models: &Models) -> Result<Ocr, OcrError> {
         let load = |p: &Path| rten::Model::load_file(p).map_err(|e| OcrError::Load(p.display().to_string(), e.to_string()));
+        Self::from_models(load(&models.detection)?, load(&models.recognition)?)
+    }
+
+    fn from_models(detection: rten::Model, recognition: rten::Model) -> Result<Ocr, OcrError> {
         let params = ocrs::OcrEngineParams {
-            detection_model: Some(load(&models.detection)?),
-            recognition_model: Some(load(&models.recognition)?),
+            detection_model: Some(detection),
+            recognition_model: Some(recognition),
             alphabet: Some(ALPHABET.into()),
             ..Default::default()
         };
@@ -121,9 +147,34 @@ impl Ocr {
         Ok(Ocr { engine })
     }
 
-    /// Load the models found by [`Models::find`].
+    /// Whether this build has models embedded, or a complete installed model pair.
+    pub fn available() -> bool {
+        cfg!(feature = "embedded-models") || Models::find().is_some()
+    }
+
+    /// Load embedded models when enabled, without reading or extracting model files.
+    /// A complete `$PDFCRAFT_MODELS` directory remains an explicit override.
+    /// Builds without embedding keep the existing installed-model search.
     pub fn find() -> Result<Ocr, OcrError> {
-        Self::load(&Models::find().ok_or(OcrError::NoModels)?)
+        #[cfg(feature = "embedded-models")]
+        {
+            Self::with_embedded_fallback(std::env::var_os("PDFCRAFT_MODELS").as_deref().map(Path::new))
+        }
+        #[cfg(not(feature = "embedded-models"))]
+        {
+            Self::load(&Models::find().ok_or(OcrError::NoModels)?)
+        }
+    }
+
+    #[cfg(feature = "embedded-models")]
+    fn with_embedded_fallback(override_dir: Option<&Path>) -> Result<Ocr, OcrError> {
+        if let Some(models) = override_dir.and_then(Models::in_dir) {
+            return Self::load(&models);
+        }
+        let load = |name: &str, bytes: &'static [u8]| {
+            rten::Model::load_static_slice(bytes).map_err(|e| OcrError::Load(format!("embedded {name}"), e.to_string()))
+        };
+        Self::from_models(load(DETECTION_MODEL, EMBEDDED_DETECTION)?, load(RECOGNITION_MODEL, EMBEDDED_RECOGNITION)?)
     }
 
     /// Recognise the text in an RGBA (or RGB, or grey) image, `width` × `height` pixels.
@@ -321,6 +372,37 @@ mod tests {
         assert!(text.iter().any(|t| t.contains("HELL") && t.contains("WOR")), "{text:?}");
         let word = lines.iter().flat_map(|l| &l.words).find(|w| w.text.contains("HELL")).unwrap();
         assert!(word.rect[0] >= 10.0 && word.rect[0] < 60.0, "{word:?}");
+    }
+
+    /// Exercise the in-memory path directly: neither installed models nor the source-tree
+    /// fallback can satisfy this test. A missing override must also use the embedded bytes.
+    #[cfg(feature = "embedded-models")]
+    #[test]
+    fn embedded_models_recognize_without_any_model_directory() {
+        let missing = std::env::temp_dir().join(format!("pdfcraft-missing-models-{}", std::process::id()));
+        assert!(!missing.exists());
+        for override_dir in [None, Some(missing.as_path())] {
+            let ocr = Ocr::with_embedded_fallback(override_dir).unwrap();
+            let (w, h, pixels) = test_image::hello();
+            let text = ocr.recognize(&pixels, w, h).unwrap().into_iter().map(|line| line.text()).collect::<Vec<_>>().join(" ");
+            assert!(text.contains("HELL") && text.contains("WOR"), "{text}");
+        }
+        assert!(!missing.exists(), "embedded loading must not extract model files");
+        let notices = embedded_model_licences().unwrap();
+        assert!(notices.contains("Robert Knight") && notices.contains("https://github.com/robertknight/ocrs-models"));
+        assert!(notices.contains("Attribution-ShareAlike 4.0 International") && notices.contains("Section 3 -- License Conditions"));
+    }
+
+    #[cfg(feature = "embedded-models")]
+    #[test]
+    fn corrupt_explicit_override_returns_an_error() {
+        let dir = std::env::temp_dir().join(format!("pdfcraft-corrupt-models-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in [DETECTION_MODEL, RECOGNITION_MODEL] {
+            std::fs::write(dir.join(file), b"invalid model").unwrap();
+        }
+        assert!(matches!(Ocr::with_embedded_fallback(Some(&dir)), Err(OcrError::Load(..))));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     mod test_image {

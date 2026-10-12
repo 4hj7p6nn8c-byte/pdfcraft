@@ -734,6 +734,7 @@ impl Automation {
             "form_set_actions" => self.form_set_actions(&a)?,
             "ocr_status" => self.ocr_status()?,
             "ocr_recognize_files" => self.ocr_recognize_files(&a)?,
+            "ocr_create_searchable_copy" => self.ocr_create_searchable_copy(&a)?,
             "accessibility_report" => self.a11y_report(&a)?,
             "accessibility_review_record" => self.a11y_review_record(&a)?,
             "accessibility_fix" => self.a11y_fix(&a)?,

@@ -2283,3 +2283,5 @@ scroll speed	Fast	速い
 	Ink sensitivity	インクの感度
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	枠内に署名が見つかりません。枠を署名に合わせるか、インクの感度を上げてください。
 	Couldn't use the photo: {e}	写真を使用できません: {e}
+	Save as New Searchable PDF	検索可能な新しいPDFとして保存
+	Save as New Searchable PDF…	検索可能な新しいPDFとして保存…

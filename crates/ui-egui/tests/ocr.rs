@@ -114,3 +114,81 @@ fn recognize_text_can_read_pictures_on_pages_with_text() {
     let text = text.text.unwrap().plain_text().to_lowercase();
     assert_eq!((text.matches("invoice").count(), text.matches("scanned").count()), (1, 1), "{text}");
 }
+
+fn protected_scan() -> Vec<u8> {
+    let mut doc = pdfcraft_cos::Document::open(std::sync::Arc::new(scan())).unwrap();
+    doc.set_encryption(&pdfcraft_cos::NewEncryption {
+        algorithm: pdfcraft_cos::Algorithm::Rc4_128,
+        user_password: "reader",
+        owner_password: "owner",
+        permissions: (1 << 2) | (1 << 9) | (1 << 11),
+        encrypt_metadata: true,
+        seed: [7; 32],
+    })
+    .unwrap();
+    pdfcraft_cos::write_full(&doc, &Default::default()).unwrap()
+}
+
+#[test]
+fn ocr_copy_dialog_suggests_copy_for_restricted_source_and_requires_authorization() {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("protected.pdf", None, protected_scan()).unwrap();
+        app.submit_password(Some("reader".into()));
+        app
+    });
+    h.run_steps(3);
+    assert!(h.state_mut().execute("ocr.recognize"), "command is reachable despite modify restriction");
+    h.run_steps(2);
+    assert_eq!(h.state().ocr_draft.mode, pdfcraft_ui_egui::OcrMode::Copy);
+    h.get_by_label("Save as New Searchable PDF");
+    h.get_by_label("I am authorized to create this unencrypted searchable derivative");
+    if let Ok(path) = std::env::var("PDFCRAFT_OCR_COPY_SHOT") {
+        h.render().unwrap().save(path).unwrap();
+    }
+    h.state_mut().start_ocr();
+    assert!(h.state().ocr_run.is_none());
+    assert!(h.state().toast.as_ref().unwrap().0.contains("unencrypted"));
+}
+
+#[test]
+fn ocr_copy_ui_saves_opens_separate_tab_and_preserves_original() {
+    if !pdfcraft_engine::ocr::available() {
+        eprintln!("skipped: OCR models not installed");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("pdfcraft-ocr-copy-ui-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("protected.pdf");
+    let target = dir.join("protected_OCR.pdf");
+    // A previous run's completed copy is an intentional collision until removed by this test.
+    if target.exists() {
+        std::fs::remove_file(&target).unwrap();
+    }
+    let original = protected_scan();
+    std::fs::write(&source, &original).unwrap();
+    let mut app = PdfCraftApp::new();
+    app.set_option("language", "en").unwrap();
+    app.open_bytes("protected.pdf", Some(source.to_string_lossy().into_owned()), original.clone()).unwrap();
+    app.submit_password(Some("reader".into()));
+    let id = app.active_ids().unwrap().1;
+    let before = app.session.get(id).unwrap().bytes.clone();
+    app.run_inline = true;
+    app.save_override = Some(target.to_string_lossy().into_owned());
+    assert!(app.execute("ocr.recognize"));
+    app.ocr_draft.authorize_derivative = true;
+    app.start_ocr();
+    assert!(target.exists(), "{}", app.toast.as_ref().unwrap().0);
+    assert_eq!(app.views.len(), 2);
+    assert_ne!(app.active_ids().unwrap().1, id);
+    let doc = app.session.get(id).unwrap();
+    assert_eq!(doc.bytes, before);
+    assert!(!doc.dirty && doc.can_undo().is_none());
+    assert_eq!(std::fs::read(source).unwrap(), original);
+    let copy = std::fs::read(&target).unwrap();
+    app.active = Some(0);
+    app.start_ocr();
+    assert!(app.toast.as_ref().unwrap().0.contains("already exists"));
+    assert_eq!(std::fs::read(&target).unwrap(), copy);
+}

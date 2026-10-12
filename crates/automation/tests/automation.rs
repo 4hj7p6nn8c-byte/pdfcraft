@@ -3612,6 +3612,92 @@ fn ocr_recognize_files_writes_searchable_copies() {
     let out = ok(&mut a, "doc_open", json!({ "path": "out/scan.pdf" }))["doc"].as_u64().unwrap();
     let found = ok(&mut a, "text_find", json!({ "doc": out, "query": "recognition" }));
     assert!(found.to_string().contains("\"page\""), "{found}");
+    let before = std::fs::read(dir.join("out/scan.pdf")).unwrap();
+    let collision = ok(&mut a, "ocr_recognize_files", json!({ "paths": ["in/scan.pdf"], "folder": "out" }));
+    assert!(collision["files"][0]["error"].as_str().unwrap().contains("already exists"));
+    assert_eq!(std::fs::read(dir.join("out/scan.pdf")).unwrap(), before);
+}
+
+#[test]
+fn ocr_copy_tool_preserves_source_enforces_paths_and_exports_authorized_derivative() {
+    if !pdfcraft_engine::ocr::available() {
+        eprintln!("skipped: OCR models not installed");
+        return;
+    }
+    let dir = workdir("ocr-copy");
+    let mut s = pdfcraft_engine::Session::new();
+    let text = s.create_from_text("text", "Searchable derivative keeps the original safe").unwrap();
+    let id = s.open("text.pdf", None, text, None).unwrap();
+    let png = pdfcraft_engine::export::Exporter::new(s.get(id).unwrap()).png(0, 150.0).unwrap();
+    let scan = s.create_from_images(&[("scan.png".into(), png)]).unwrap();
+    let mut protected = pdfcraft_cos::Document::open(scan).unwrap();
+    protected
+        .set_encryption(&pdfcraft_cos::NewEncryption {
+            algorithm: pdfcraft_cos::Algorithm::Rc4_128,
+            user_password: "reader",
+            owner_password: "owner",
+            permissions: (1 << 2) | (1 << 9) | (1 << 11),
+            encrypt_metadata: true,
+            seed: [7; 32],
+        })
+        .unwrap();
+    let original = pdfcraft_cos::write_full(&protected, &Default::default()).unwrap();
+    std::fs::write(dir.join("protected.pdf"), &original).unwrap();
+    let mut a = auto(&dir);
+    let id = ok(&mut a, "doc_open", json!({ "path": "protected.pdf", "password": "reader" }))["doc"].as_u64().unwrap();
+    let before = ok(&mut a, "doc_info", json!({ "doc": id }));
+    for args in [
+        json!({ "doc": id, "path": "denied.pdf" }),
+        json!({ "doc": id, "path": "protected.pdf", "authorize_derivative": true, "overwrite": true }),
+        json!({ "doc": id, "path": "../outside.pdf", "authorize_derivative": true }),
+        json!({ "doc": id, "path": "bad.pdf", "pages": [9], "authorize_derivative": true }),
+    ] {
+        assert!(a.call("ocr_create_searchable_copy", &args).is_err());
+    }
+    assert!(!dir.join("denied.pdf").exists());
+    let r = ok(&mut a, "ocr_create_searchable_copy", json!({ "doc": id, "path": "protected_OCR.pdf", "authorize_derivative": true, "open": true }));
+    assert_eq!(r["kind"], "raster");
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("unencrypted")));
+    assert!(r["words"].as_u64().unwrap() >= 6);
+    let out = r["doc"].as_u64().unwrap();
+    let found = ok(&mut a, "text_find", json!({ "doc": out, "query": "derivative" }));
+    assert!(found.to_string().contains("\"page\""), "{found}");
+    assert_eq!(ok(&mut a, "doc_info", json!({ "doc": id })), before);
+    assert_eq!(std::fs::read(dir.join("protected.pdf")).unwrap(), original);
+    assert!(pdfcraft_cos::Document::open_with_password(std::sync::Arc::new(original), Some("reader")).is_ok());
+    let copy = std::fs::read(dir.join("protected_OCR.pdf")).unwrap();
+    assert!(a.call("ocr_create_searchable_copy", &json!({ "doc": id, "path": "protected_OCR.pdf", "authorize_derivative": true })).is_err());
+    assert_eq!(std::fs::read(dir.join("protected_OCR.pdf")).unwrap(), copy);
+    let r =
+        ok(&mut a, "ocr_create_searchable_copy", json!({ "doc": id, "path": "protected_OCR.pdf", "authorize_derivative": true, "overwrite": true }));
+    assert_eq!(r["kind"], "raster");
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn ocr_copy_mcp_exports_through_shared_tool() {
+    if !pdfcraft_engine::ocr::available() {
+        eprintln!("skipped: OCR models not installed");
+        return;
+    }
+    let dir = workdir("ocr-copy-mcp");
+    let mut server = McpServer::new(auto(&dir));
+    let original = std::fs::read(dir.join("a.pdf")).unwrap();
+    let opened = rpc(&mut server, 1, "tools/call", json!({ "name": "doc_open", "arguments": { "path": "a.pdf" } }));
+    let id = opened["result"]["structuredContent"]["doc"].as_u64().unwrap();
+    let copied = rpc(
+        &mut server,
+        2,
+        "tools/call",
+        json!({ "name": "ocr_create_searchable_copy", "arguments": { "doc": id, "path": "a_OCR.pdf", "open": true } }),
+    );
+    assert_eq!(copied["result"]["isError"], false, "{copied}");
+    assert_eq!(copied["result"]["structuredContent"]["kind"], "faithful");
+    assert_eq!(copied["result"]["structuredContent"]["words"], 0, "all text pages skipped");
+    let collision =
+        rpc(&mut server, 3, "tools/call", json!({ "name": "ocr_create_searchable_copy", "arguments": { "doc": id, "path": "a_OCR.pdf" } }));
+    assert_eq!(collision["result"]["isError"], true);
+    assert_eq!(std::fs::read(dir.join("a.pdf")).unwrap(), original);
 }
 
 #[test]

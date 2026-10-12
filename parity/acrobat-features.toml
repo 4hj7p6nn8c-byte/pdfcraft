@@ -6430,6 +6430,18 @@ evidence = ["crates/engine/src/tests.rs::recognize_text_makes_a_scanned_page_sea
 notes = "ocrs engine (MIT/Apache) with CC-BY-SA models fetched by `cargo xtask models`; the desktop release packages ship them (#103; packaging/env.sh stage_models), the web build does not yet; runs on a worker thread with progress; one undoable step; pages with text are skipped unless asked (ocr.skip-renderable-text)."
 
 [[feature]]
+id = "ocr.searchable-copy"
+title = "Save OCR as a separate searchable PDF"
+area = "I"
+tier = "P0"
+milestone = "M10"
+status = "shipped"
+commands = ["ocr.create_searchable_copy"]
+tools = ["ocr_create_searchable_copy"]
+evidence = ["crates/engine/src/tests.rs::ocr_copy_searchable_security_and_source_history", "crates/automation/tests/automation.rs::ocr_copy_tool_preserves_source_enforces_paths_and_exports_authorized_derivative", "crates/ui-egui/tests/ocr.rs::ocr_copy_ui_saves_opens_separate_tab_and_preserves_original", "apps/pdfcraft-cli/tests/ocr_copy.rs::cli_ocr_copy_is_searchable_and_preserves_source_under_root"]
+notes = "Independent snapshot retains source dirty state/history; faithful encrypted copy when modification is permitted, otherwise explicit authorization for a print-permitted unencrypted raster derivative. Low-quality printing capped at 150 dpi. Atomic collision-safe save and desktop cancellation. English/Latin models only; raster loses interactive structure/signatures; no new accessibility-only in-session mode or automatic scan orientation detection. See docs/ocr-searchable-copy.md."
+
+[[feature]]
 id = "ocr.recognize-range"
 title = "Recognize text in the current page or a range"
 area = "I"

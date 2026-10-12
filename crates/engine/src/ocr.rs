@@ -9,9 +9,12 @@ use std::sync::{Arc, Mutex};
 
 use pdfcraft_render::{PageInfo, PageRenderer, RenderConfig, RenderRequest, RequestKind};
 
-pub use pdfcraft_ocr::{LANGUAGES, Models, Ocr, OcrError, PlacedWord};
+pub use pdfcraft_ocr::{LANGUAGES, Models, Ocr, OcrError, PlacedWord, embedded_model_licences};
 
 use crate::{DocId, Edit, EditError, Session};
+
+mod copy;
+pub use copy::{CopyJob, CopyKind, CopyPolicy, CopyResult, DERIVATIVE_WARNING, copy_policy, suggested_copy_name};
 
 /// Recognize Text settings.
 #[derive(Clone, Debug, PartialEq)]
@@ -80,9 +83,9 @@ pub fn engine() -> Result<Arc<Ocr>, String> {
     Ok(o)
 }
 
-/// Whether the recognition models are installed.
+/// Whether the recognition models are embedded or installed.
 pub fn available() -> bool {
-    Models::find().is_some()
+    Ocr::available()
 }
 
 /// Everything recognition needs from a document, detached from the session.
@@ -98,6 +101,18 @@ pub struct OcrJob {
 }
 
 impl OcrJob {
+    /// Recognition that discards partial results on cancellation, including cancellation after
+    /// the last page. Searchable-copy exports must never save an incomplete run.
+    pub fn run_checked(self, ocr: &Ocr, mut progress: impl FnMut(usize, usize) -> bool) -> Result<Vec<OcrPage>, String> {
+        let mut cancelled = false;
+        let found = self.run(ocr, |done, total| {
+            let keep_going = !cancelled && progress(done, total);
+            cancelled |= !keep_going;
+            keep_going
+        });
+        if cancelled { Err("Text recognition cancelled; no copy was saved".into()) } else { Ok(found) }
+    }
+
     /// Read the pages. `progress(done, total)` is called before each page; returning `false`
     /// stops (the pages read so far are returned).
     pub fn run(self, ocr: &Ocr, mut progress: impl FnMut(usize, usize) -> bool) -> Vec<OcrPage> {
@@ -127,24 +142,27 @@ impl OcrJob {
             let scale = self.native.get(page).copied().flatten().map_or(wanted, |n| n.clamp(1.0, wanted));
             let shot = r.render(RenderRequest { page, scale, ..Default::default() });
             if let Some(e) = shot.error {
-                out.push(skip(&e));
+                out.push(skip(&format!("error: {e}")));
                 continue;
             }
             let lines = match ocr.recognize(&shot.rgba, shot.width, shot.height) {
                 Ok(l) => l,
                 Err(e) => {
-                    out.push(skip(&e.to_string()));
+                    out.push(skip(&format!("error: {e}")));
                     continue;
                 }
             };
-            let scale = shot.width as f32 / info.width.max(1e-3);
+            let sx = shot.width as f32 / info.width.max(1e-3);
+            let sy = shot.height as f32 / info.height.max(1e-3);
             let to_user = |x: f32, y: f32| {
-                let [u, v] = info.view_to_user(x / scale, y / scale);
+                let [u, v] = info.view_to_user(x / sx, y / sy);
                 [u as f64, v as f64]
             };
             // Words the page's own text already has are not added a second time.
-            let (fresh, already): (Vec<_>, Vec<_>) =
-                lines.iter().flat_map(|l| &l.words).partition(|w| covered(w.rect.map(|v| v / scale), &existing) < ALREADY_ON_PAGE);
+            let (fresh, already): (Vec<_>, Vec<_>) = lines.iter().flat_map(|l| &l.words).partition(|w| {
+                let [x0, y0, x1, y1] = w.rect;
+                covered([x0 / sx, y0 / sy, x1 / sx, y1 / sy], &existing) < ALREADY_ON_PAGE
+            });
             let words = fresh.into_iter().map(|w| PlacedWord::place(w, to_user)).collect();
             out.push(OcrPage { page, words, already_on_page: already.len(), skipped: None });
         }
@@ -194,6 +212,9 @@ impl Session {
         let job = self.ocr_job(id, pages, settings).ok_or("no such document")?;
         if let Some(why) = self.get(id).and_then(|d| d.read_only_reason.clone()) {
             return Err(why);
+        }
+        if self.get(id).is_none_or(|d| !d.allows_modification()) {
+            return Err("The security settings prohibit in-place OCR. Use Save as New Searchable PDF, or reopen with the owner password.".into());
         }
         let ocr = engine()?;
         let found = job.run(&ocr, |_, _| true);

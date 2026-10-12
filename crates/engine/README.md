@@ -61,6 +61,12 @@ family (`sign`, `sign_with_timestamp`, `timestamp_document`, `embed_ltv`).
 
 ## Modules
 
+`Session::ocr_copy_job` captures a permission-checked OCR snapshot; `CopyJob::run` recognizes
+and builds an independent searchable PDF without editing the source session. Faithful copies
+retain encryption; print-authorized raster derivatives require explicit authorization and report
+security/fidelity losses. Frontends publish `CopyResult.file.bytes` through the platform's atomic
+copy writer. See [searchable-copy behavior](../../docs/ocr-searchable-copy.md).
+
 | Module | What it holds |
 |---|---|
 | `commands` | The command registry: id, label, menu, shortcut, and a `Needs` precondition encoding document security. Menus, the ⌘K palette, shortcuts and the control channel all read it, so every surface agrees on what exists and when it is enabled |

@@ -3,6 +3,67 @@
 
 use std::path::{Path, PathBuf};
 
+/// Reject replacing the source (including symlink aliases) and require explicit overwrite
+/// authorization. Call both before expensive work and immediately before publishing output.
+pub fn check_copy_destination(target: &Path, source: Option<&Path>, overwrite: bool) -> std::io::Result<()> {
+    let bad = |s| std::io::Error::new(std::io::ErrorKind::AlreadyExists, s);
+    if target.is_dir() {
+        return Err(bad("The output is a folder, not a PDF file"));
+    }
+    if let Some(source) = source {
+        let absolute = |p: &Path| -> std::io::Result<PathBuf> {
+            if p.exists() {
+                p.canonicalize()
+            } else {
+                let parent = p.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+                let name = p.file_name().ok_or_else(|| bad("Invalid output filename"))?;
+                Ok(parent.canonicalize()?.join(name))
+            }
+        };
+        if absolute(target)? == absolute(source)? {
+            return Err(bad("A searchable copy cannot replace its source; choose a different filename"));
+        }
+    }
+    if target.symlink_metadata().is_ok() && !overwrite {
+        return Err(bad("The output already exists; choose a new filename or explicitly approve overwrite"));
+    }
+    Ok(())
+}
+
+/// Atomic publication of a separate copy. Hard-linking the closed staging file publishes
+/// without replacement even if another file appears during the job. A cancelled/failed write
+/// removes its staging file. Rename replaces an existing target only after explicit approval.
+pub fn write_copy_atomic(
+    target: &Path,
+    source: Option<&Path>,
+    bytes: &[u8],
+    overwrite: bool,
+    mut keep_going: impl FnMut() -> bool,
+) -> std::io::Result<()> {
+    use std::io::Write;
+    check_copy_destination(target, source, overwrite)?;
+    let parent = target.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = target.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid output filename"))?;
+    let (tmp, mut file) = create_staging(parent, &name.to_string_lossy(), StagingName::SuffixThenTag, staging_suffixes())?;
+    let result = (|| {
+        for chunk in bytes.chunks(1024 * 1024) {
+            if !keep_going() {
+                return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "OCR cancelled; no copy was saved"));
+            }
+            file.write_all(chunk)?;
+        }
+        file.sync_all()?;
+        drop(file);
+        check_copy_destination(target, source, overwrite)?;
+        if !keep_going() {
+            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "OCR cancelled; no copy was saved"));
+        }
+        if overwrite { std::fs::rename(&tmp, target) } else { std::fs::hard_link(&tmp, target) }
+    })();
+    let _ = std::fs::remove_file(tmp);
+    result
+}
+
 /// How many staging names [`create_staging`] tries. A random 64-bit name is only taken if someone
 /// put a file there on purpose, so running out means refusing, not trying harder.
 pub const STAGING_ATTEMPTS: usize = 16;
@@ -67,6 +128,59 @@ pub fn staging_suffixes() -> impl Iterator<Item = u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn searchable_copy_collision_source_cancel_and_write_failure_are_safe() {
+        let dir = test_dir("copy-safe");
+        let source = dir.join("source.pdf");
+        let target = dir.join("copy.pdf");
+        std::fs::write(&source, b"ORIGINAL").unwrap();
+        assert!(write_copy_atomic(&source, Some(&source), b"NEW", true, || true).is_err());
+        assert!(write_copy_atomic(&target, Some(&source), b"NEW", false, || false).is_err());
+        assert!(!target.exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        write_copy_atomic(&target, Some(&source), b"NEW", false, || true).unwrap();
+        assert!(write_copy_atomic(&target, Some(&source), b"BAD", false, || true).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
+        write_copy_atomic(&target, Some(&source), b"APPROVED", true, || true).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"APPROVED");
+        assert!(write_copy_atomic(&dir.join("missing").join("out.pdf"), Some(&source), b"BAD", false, || true).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), b"ORIGINAL");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2, "no staging files remain");
+    }
+
+    #[test]
+    fn searchable_copy_racing_collision_never_replaces_an_existing_file() {
+        let dir = test_dir("copy-race");
+        let target = dir.join("copy.pdf");
+        let mut calls = 0;
+        let r = write_copy_atomic(&target, None, b"NEW", false, || {
+            calls += 1;
+            if calls == 2 {
+                std::fs::write(&target, b"EXISTING").unwrap();
+            }
+            true
+        });
+        assert!(r.is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"EXISTING");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn searchable_copy_cancel_during_write_cleans_staging_and_keeps_existing_output() {
+        let dir = test_dir("copy-cancel-writing");
+        let target = dir.join("copy.pdf");
+        std::fs::write(&target, b"EXISTING").unwrap();
+        let mut calls = 0;
+        let bytes = vec![42; 2 * 1024 * 1024];
+        let result = write_copy_atomic(&target, None, &bytes, true, || {
+            calls += 1;
+            calls < 2
+        });
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(std::fs::read(&target).unwrap(), b"EXISTING");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
 
     /// A fresh, empty folder for one test.
     fn test_dir(test: &str) -> PathBuf {

@@ -10,6 +10,10 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Fetch the attributed, hash-pinned files with `cargo xtask models` before enabling this.
+embedded-models = []
+
 [dependencies]
 pdfcraft-fonts = { workspace = true }
 ocrs = { version = "0.13.1", default-features = false, features = ["rten"] }

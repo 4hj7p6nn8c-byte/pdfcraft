@@ -117,6 +117,11 @@ reported as an internal tool error, and the server continues serving.
 Exports complete synchronously. `progressToken` and cancellation notifications are harmlessly
 ignored; no background-job or cancellation behavior is added.
 
+`ocr_create_searchable_copy` exports an independent OCR snapshot, retaining source security when
+modification is allowed, or requiring explicit `authorize_derivative` for a print-authorized
+unencrypted raster derivative. It refuses source replacement and existing destinations unless
+`overwrite` is explicit. See [searchable-copy behavior and examples](../../docs/ocr-searchable-copy.md).
+
 Session resources `pdfcraft://document` and `pdfcraft://commands`, and the refusal of unknown argument keys, are described in [docs/mcp.md](../../docs/mcp.md).
 
 For inline editor previews, `page_render` accepts `hide_text_block` (a 1-based index from

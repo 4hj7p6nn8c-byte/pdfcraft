@@ -8,6 +8,9 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+embedded-ocr = ["pdfcraft-ocr/embedded-models"]
+
 [dependencies]
 pdfcraft-measure = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff"] }

@@ -49,6 +49,7 @@ mod js_ui;
 mod marks_ui;
 mod measure_ui;
 mod ocr_ui;
+pub use ocr_ui::OcrMode;
 mod optimize_ui;
 mod search_ui;
 mod sign_ui;
@@ -1451,7 +1452,11 @@ impl PdfCraftApp {
     /// Draw the running job's progress card and pass a Cancel click on to the job.
     fn show_progress(&mut self, ctx: &egui::Context) {
         if widgets::progress_notice(self, ctx) {
-            self.cancel_optimize();
+            if self.ocr_run.is_some() {
+                self.cancel_ocr();
+            } else {
+                self.cancel_optimize();
+            }
         }
     }
 

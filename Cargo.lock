@@ -1538,6 +1538,7 @@ dependencies = [
  "ahash",
  "egui",
  "enum-map",
+ "image",
  "itertools",
  "log",
  "profiling",

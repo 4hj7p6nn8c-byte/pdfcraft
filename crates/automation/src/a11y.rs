@@ -260,7 +260,10 @@ impl Automation {
     fn ocr_settings(&self, a: &Args) -> Result<pdfcraft_engine::ocr::OcrSettings> {
         let mut settings = pdfcraft_engine::ocr::OcrSettings::default();
         if let Some(d) = a.opt_num("dpi")? {
-            settings.dpi = d.clamp(72.0, 600.0) as f32;
+            if !(72.0..=600.0).contains(&d) {
+                return Err(ToolError::InvalidArgs("OCR dpi must be between 72 and 600".into()));
+            }
+            settings.dpi = d as f32;
         }
         if let Some(l) = a.opt_str("language")? {
             if !pdfcraft_engine::ocr::LANGUAGES.iter().any(|x| x.0 == l) {
@@ -272,6 +275,38 @@ impl Automation {
             settings.skip_text_pages = s;
         }
         Ok(settings)
+    }
+
+    pub(crate) fn ocr_create_searchable_copy(&mut self, a: &Args) -> Result<Value> {
+        use pdfcraft_engine::ocr::CopyKind;
+        let settings = self.ocr_settings(a)?;
+        let pages = if a.opt_ints("pages")?.is_some() { self.pages(a, "pages")? } else { Vec::new() };
+        let doc = self.doc(a)?;
+        let (id, source) = (doc.id, doc.path.clone());
+        let job = self.session.ocr_copy_job(id, &pages, settings, a.opt_bool("authorize_derivative")?.unwrap_or(false)).map_err(failed)?;
+        let target = self.resolve(a.str("path")?, true)?;
+        let overwrite = a.opt_bool("overwrite")?.unwrap_or(false);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| failed(e.to_string()))?;
+        }
+        let source = source.map(std::path::PathBuf::from);
+        pdfcraft_platform::staging::check_copy_destination(&target, source.as_deref(), overwrite).map_err(|e| failed(e.to_string()))?;
+        let ocr = pdfcraft_engine::ocr::engine().map_err(failed)?;
+        let r = job.run(&ocr, |_, _| true).map_err(failed)?;
+        // Repeat --root checks at publication time, after the potentially lengthy recognition.
+        let target = self.resolve(a.str("path")?, true)?;
+        pdfcraft_platform::staging::write_copy_atomic(&target, source.as_deref(), &r.file.bytes, overwrite, || true)
+            .map_err(|e| failed(e.to_string()))?;
+        let opened = if a.opt_bool("open")?.unwrap_or(false) {
+            let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "OCR.pdf".into());
+            Some(self.session.open(name, Some(target.to_string_lossy().into_owned()), r.file.bytes.clone(), r.password.as_deref()).map_err(failed)?.0)
+        } else {
+            None
+        };
+        let pages: Vec<Value> = r.file.pages.iter().map(|p| json!({ "page": p.page + 1, "words": p.words.len(), "skipped": p.skipped })).collect();
+        Ok(
+            json!({ "source": id.0, "output": target.to_string_lossy(), "doc": opened, "words": r.file.words(), "pages": pages, "kind": if r.kind == CopyKind::Faithful { "faithful" } else { "raster" }, "warnings": r.warnings }),
+        )
     }
 
     pub(crate) fn ocr_recognize_files(&mut self, a: &Args) -> Result<Value> {
@@ -295,9 +330,11 @@ impl Automation {
             out.push(match result {
                 Ok(r) => {
                     let target = child(&folder, &name);
-                    write_atomic(&target, &r.bytes)?;
                     let skipped: Vec<usize> = r.pages.iter().filter(|p| p.skipped.is_some()).map(|p| p.page + 1).collect();
-                    json!({ "path": p, "output": target.to_string_lossy(), "words": r.words(), "skipped_pages": skipped })
+                    match pdfcraft_platform::staging::write_copy_atomic(&target, None, &r.bytes, false, || true) {
+                        Ok(()) => json!({ "path": p, "output": target.to_string_lossy(), "words": r.words(), "skipped_pages": skipped }),
+                        Err(e) => json!({ "path": p, "error": e.to_string() }),
+                    }
                 }
                 Err(e) => json!({ "path": p, "error": e }),
             });

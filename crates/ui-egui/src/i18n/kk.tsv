@@ -2281,3 +2281,7 @@ scroll speed	Fast	Жылдам
 	Ink sensitivity	Сия сезімталдығы
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	Жақтауда қолтаңба табылмады. Жақтауды қолтаңбаның үстіне жылжытыңыз немесе сия сезімталдығын арттырыңыз.
 	Couldn't use the photo: {e}	Суретті пайдалану мүмкін болмады: {e}
+
+# Fork searchable-copy command
+	Save as New Searchable PDF	Жаңа іздеуге болатын PDF ретінде сақтау
+	Save as New Searchable PDF…	Жаңа іздеуге болатын PDF ретінде сақтау…

@@ -2299,3 +2299,7 @@ scroll speed	Fast	Γρήγορη
 	Ink sensitivity	Ευαισθησία μελανιού
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	Δεν βρέθηκε υπογραφή στο πλαίσιο. Μετακινήστε το πλαίσιο πάνω από την υπογραφή ή αυξήστε την ευαισθησία μελανιού.
 	Couldn't use the photo: {e}	Δεν ήταν δυνατή η χρήση της φωτογραφίας: {e}
+
+# Fork searchable-copy command
+	Save as New Searchable PDF	Αποθήκευση ως νέο PDF με δυνατότητα αναζήτησης
+	Save as New Searchable PDF…	Αποθήκευση ως νέο PDF με δυνατότητα αναζήτησης…

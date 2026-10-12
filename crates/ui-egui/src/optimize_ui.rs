@@ -274,7 +274,7 @@ impl PdfCraftApp {
             return;
         }
         let Some((_, id)) = self.active_ids() else { return };
-        if self.optimize_run.is_some() {
+        if self.optimize_run.is_some() || self.ocr_run.is_some() {
             self.notify_tr("Optimization is already running");
             return;
         }

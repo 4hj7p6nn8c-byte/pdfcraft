@@ -999,6 +999,16 @@ pub fn tools() -> Vec<ToolDef> {
                 }),
                 &["paths", "folder"],
             )),
+        t("ocr_create_searchable_copy", "Save as New Searchable PDF", "Recognize selected pages of an independently captured PDF and atomically save a separate copy; source dirty state and history are unchanged. Modification/owner rights use a faithful copy retaining encryption and existing text. Otherwise printing must be allowed and authorize_derivative must explicitly acknowledge an unencrypted raster derivative losing vectors, bookmarks, links, forms, layers and signatures. Low-quality printing limits DPI to 150. Existing destinations require overwrite; the source cannot be replaced. Only English/Latin OCR is supported. CLI and MCP exports are synchronous; cancellation is available in the desktop UI.")
+            .cmd("ocr.create_searchable_copy")
+            .with(schema(json!({
+                "doc": doc(), "path": { "type": "string" }, "pages": pages("to recognize (default all; every source page is retained)"),
+                "dpi": { "type": "number", "minimum": 72, "maximum": 600 }, "language": { "type": "string", "enum": ["en"] },
+                "skip_text_pages": { "type": "boolean", "description": "Skip recognition on pages with existing text (default true)." },
+                "authorize_derivative": { "type": "boolean", "description": "Explicitly confirm authorization to create an unencrypted raster derivative despite source security and fidelity losses (default false)." },
+                "overwrite": { "type": "boolean", "description": "Explicitly approve replacing an existing output, never the source (default false)." },
+                "open": { "type": "boolean", "description": "Open the resulting document in the session (default false)." }
+            }), &["doc", "path"])),
         t("ocr_status", "OCR status", "Whether text recognition is available (its models are installed: release packages include them; a source build fetches them with `cargo xtask models`; PDFCRAFT_MODELS overrides), where it looks for them, and the languages it reads.")
             .ro()
             .cmd("ocr.recognize")

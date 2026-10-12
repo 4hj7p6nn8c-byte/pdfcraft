@@ -909,7 +909,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 return;
             }
             Dialog::RecognizeText => {
-                let (go, cancel) = crate::ocr_ui::body(ui, app, &t);
+                // A modal starts with a small available rectangle. Reserve its viewport before
+                // adding the scroll area, otherwise its first small height becomes permanent
+                // and lower controls appear in AccessKit while remaining clipped on screen.
+                let height = (ctx.content_rect().height() - 80.0).clamp(200.0, 720.0);
+                ui.set_min_height(height);
+                let (go, cancel) = egui::ScrollArea::vertical().max_height(height).show(ui, |ui| crate::ocr_ui::body(ui, app, &t)).inner;
                 ocr_now = go;
                 close = go || cancel;
                 return;
@@ -1095,7 +1100,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                     2 => crate::credits::models_ui(ui),
                     _ => {
                         ui.horizontal(|ui| {
-                            widgets::artcraft_mark(ui, 40.0);
+                            widgets::pdfcraft_logo(ui, 40.0);
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new("PdfCraft").font(theme::semibold(20.0)));
                                 ui.label(crate::i18n::fmt(tl!("Version {v}"), &[("v", env!("CARGO_PKG_VERSION"))]));
@@ -1110,10 +1115,17 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             .color(t.text_muted)
                             .small(),
                         );
+                        if let Some(licences) = pdfcraft_engine::ocr::embedded_model_licences() {
+                            ui.collapsing("OCR · CC-BY-SA-4.0", |ui| {
+                                egui::ScrollArea::vertical().id_salt("ocr_model_licences").max_height(240.0).show(ui, |ui| {
+                                    ui.add(egui::Label::new(licences).wrap().selectable(true));
+                                });
+                            });
+                        }
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(tl!("Part of")).color(t.text_muted));
-                            widgets::artcraft_logo(ui, 16.0);
+                            ui.label("ArtCraft");
                         });
                         ui.add_space(6.0);
                         if let Some(cmd) = widgets::community_links(ui) {

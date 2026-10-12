@@ -249,6 +249,7 @@ pub static TOOL_GROUPS: &[ToolGroup] = &[
             title: "Recognize text",
             items: &[
                 item("In this file", "scan-text", "ocr.recognize", Ready),
+                item("Save as New Searchable PDF", "file-output", "ocr.create_searchable_copy", Ready),
                 item("In multiple files", "files", "ocr.recognize_batch", Ready),
                 item("Enhance scanned file", "sparkles", "ocr.enhance", Planned("M10")),
                 item("Enhance camera image", "camera", "ocr.enhance_camera", Ready),

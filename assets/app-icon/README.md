@@ -1,56 +1,52 @@
-# PdfCraft app icon
+# PdfCraft logo and app icons
 
-<img src="pdfcraft-small.svg" alt="PdfCraft app icon: an engraved lion's head on green" width="128">
+<img src="hicolor/256x256/apps/ai.storyteller.pdfcraft.png" alt="PdfCraft PDF document emblem" width="128">
 
-**Creature:** a lion, in a frontal head-and-shoulders portrait, mane running off the bottom of the tile.
+The logo is the contributor-supplied glossy red/orange PDF document emblem. The original
+1254 × 1254 RGBA PNG is preserved byte-for-byte as `pdfcraft.png`, including its transparency
+and framing. Every platform icon is a resized copy, with no tracing or recolouring.
 
-**Style:** an engraving (woodcut-weight line work) portrait in the Crafting Apps "owl template" framing:
-a full-bleed colour field, no frame or roundel, the animal looking at the viewer and filling the tile.
+**Provenance:** generated in ChatGPT and supplied by GitHub contributor `4hj7p6nn8c-byte` on
+2026-10-10. The contributor confirmed ownership and permission to include it under the project's
+`MIT OR Apache-2.0` licence. See [LICENSE.txt](LICENSE.txt).
 
-**Palette:** exactly three colours.
-
-| Colour | Hex | Used for |
-|---|---|---|
-| Ink | `#0b0b0c` | line work and the figure's contour |
-| Paper | `#efe9dc` | the figure (the lion's silhouette) |
-| PdfCraft green (app colour) | `#12a58a` | the full-bleed field |
-
-**Tile:** `viewBox="0 0 512 512"`, a rounded square with `rx=112` that clips everything. Windows and Linux
-icons use the full-bleed tile. macOS icons put it on Apple's grid (an 824 px body centred on a transparent
-1024 px canvas).
-
-**Provenance:** the project owner's original drawing, made in ArtCraft (2880 px, keyed to the palette), then
-vectorised with craftrules `assets/logo-options/_tools/vectorize_tile.py` (potrace; no filtering or
-warping). The source drawing is kept in craftrules at `assets/app-icons/pdfcraft/source.png`, not here.
-Licence: [LICENSE.txt](LICENSE.txt) (`MIT OR Apache-2.0`, like the repo).
-
-## Files
-
-| File | What it is |
+| File | Use |
 |---|---|
-| `pdfcraft.svg` | the master vector (traced at 2048 px); every PNG, `.ico` and `.icns` is rendered from it |
-| `pdfcraft-small.svg` | a lighter vector (traced at 1024 px) for places where size matters, such as this README |
-| `pdfcraft-1024.png` | 1024 px on Apple's grid; also the runtime Dock icon on macOS |
-| `pdfcraft.icns` | macOS icon (16–1024 px) |
-| `pdfcraft.ico` | Windows icon (16–256 px), embedded in `pdfcraft.exe` by `apps/pdfcraft/build.rs` |
-| `pdfcraft-document.svg` | Windows PDF file icon master: a Lucide document outline, green badge and outlined PDF lettering; no font dependency |
-| `pdfcraft-document.ico` | Windows PDF file icon (16–256 px), embedded as resource 2 in `pdfcraft.exe` |
-| `hicolor/<n>x<n>/apps/ai.storyteller.pdfcraft.png` | Linux hicolor theme, 16–512 px; the 256 px one is the runtime icon on Windows and Linux |
-| `hicolor/scalable/apps/ai.storyteller.pdfcraft.svg` | Linux scalable icon (copy of the master) |
+| `pdfcraft.png` | Unmodified source image |
+| `pdfcraft.svg` | Self-contained SVG container embedding the source PNG |
+| `pdfcraft-small.svg` | SVG container embedding a 256 px PNG; compact logo for SVG consumers |
+| `pdfcraft-1024.png` | macOS runtime Dock/window icon |
+| `pdfcraft.icns` | macOS bundle icon, generated on any OS |
+| `pdfcraft.ico` | Windows executable and installer icon, 16–256 px |
+| `hicolor/<n>x<n>/apps/ai.storyteller.pdfcraft.png` | Linux/FreeBSD icons, 16–512 px; 256 px is also the Windows/Linux runtime icon |
+| `hicolor/scalable/apps/ai.storyteller.pdfcraft.svg` | Self-contained SVG container embedding a 512 px PNG |
+| `pdfcraft-document.svg` | Source PNG container for Windows PDF file associations |
+| `pdfcraft-document.ico` | Supplied emblem embedded as resource 2 for PDF file associations |
 
-Where it shows: `apps/pdfcraft/src/main.rs` sets the window icon (Dock, taskbar, Alt-Tab, launcher) and the
-Wayland app id `ai.storyteller.pdfcraft`; `packaging/linux/ai.storyteller.pdfcraft.desktop` names the
-hicolor icon.
+The SVG files contain raster images; they are not resolution-independent vectors.
+README branding uses the 256 px PNG. Desktop and web UI share the same logo widget.
 
 Windows PDF files use resource 2 (`"pdfcraft.exe",-2`) when PdfCraft is chosen as the default
-reader; the app keeps resource 1. The document outline is adapted from Lucide `file-text`
-1.49.0 (ISC); its badge and outlined lettering are original (`MIT OR Apache-2.0`), covered by
-[LICENSE-document.txt](LICENSE-document.txt). Both icons are embedded, requiring no runtime
-sidecar. This provides a file type icon; first-page thumbnails still need a thumbnail provider.
+reader; the app keeps resource 1. Both use the contributor-supplied emblem under
+[LICENSE.txt](LICENSE.txt). Both icons are embedded, requiring no runtime sidecar.
+This provides a file type icon; first-page thumbnails still need a thumbnail provider.
 
 ## Regenerate
 
+Install Python 3 and Pillow, then run from the repository root:
+
 ```sh
-packaging/icons.sh        # needs resvg and python3; iconutil (macOS) for the .icns
-cargo xtask assets        # then update the sha256 values in ATTRIBUTION.toml and run with --write
+python packaging/icons.py
+# Or, on systems with bash and python3:
+packaging/icons.sh
 ```
+
+Update the changed assets' SHA-256 values in `ATTRIBUTION.toml`, then run:
+
+```sh
+cargo xtask assets --write
+cargo xtask assets
+```
+
+The supplied artwork already includes transparent margins, so regeneration preserves them
+without adding a second inset. Building and packaging use the committed outputs.

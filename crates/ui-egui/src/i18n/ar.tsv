@@ -2304,3 +2304,7 @@ scroll speed	Fast	سريعة
 	Ink sensitivity	حساسية الحبر
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	لم يُعثر على توقيع داخل الإطار. حرّك الإطار فوق التوقيع أو ارفع حساسية الحبر.
 	Couldn't use the photo: {e}	تعذّر استخدام الصورة: {e}
+
+# Fork searchable-copy command
+	Save as New Searchable PDF	حفظ كملف PDF جديد قابل للبحث
+	Save as New Searchable PDF…	حفظ كملف PDF جديد قابل للبحث…

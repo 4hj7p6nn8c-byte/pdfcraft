@@ -44,8 +44,8 @@ mod windows_manifest;
 /// Freedesktop app id: the `.desktop` file name and the hicolor icon name.
 const APP_ID: &str = "ai.storyteller.pdfcraft";
 
-/// The app icon (assets/app-icon/README.md). macOS gets the version on Apple's icon grid, with a
-/// transparent margin; Windows and Linux get the full-bleed tile.
+/// The supplied PDF emblem (assets/app-icon/README.md), preserving its transparent framing.
+/// macOS uses the 1024 px version; Windows and Linux use the 256 px version.
 #[cfg(target_os = "macos")]
 const APP_ICON_PNG: &[u8] = include_bytes!("../../../assets/app-icon/pdfcraft-1024.png");
 #[cfg(not(target_os = "macos"))]

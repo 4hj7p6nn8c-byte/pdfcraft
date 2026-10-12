@@ -32,5 +32,6 @@ winresource = "0.1"
 
 [features]
 default = ["mcp"]
+embedded-ocr = ["pdfcraft-engine/embedded-ocr"]
 # The opt-in MCP server (`pdfcraft-cli mcp`). Build with --no-default-features to leave it out.
 mcp = ["pdfcraft-automation/mcp"]

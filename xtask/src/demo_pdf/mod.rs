@@ -114,6 +114,21 @@ pub(crate) fn file_url(path: &Path) -> String {
     url
 }
 
+#[cfg(all(test, windows))]
+mod file_url_tests {
+    #[test]
+    fn canonical_windows_paths_produce_browser_file_urls() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let canonical = path.canonicalize().unwrap();
+        let plain = canonical.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
+        let url = super::file_url(path);
+        assert!(url.starts_with("file:///"));
+        assert_eq!(url.as_bytes().get(8), plain.as_bytes().first());
+        assert_eq!(url.as_bytes().get(9), Some(&b':'));
+        assert_eq!(super::file_url(&canonical), super::file_url(path));
+    }
+}
+
 /// PostScript-name prefixes of the fonts the showcase may embed: the OFL fonts in
 /// ATTRIBUTION.toml. Standard-14 names are allowed only as non-embedded references.
 const ALLOWED_FONT_PREFIXES: &[&str] = &[

@@ -2247,3 +2247,5 @@ scroll speed	Fast	快
 	Ink sensitivity	墨迹灵敏度
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	框内未找到签名。请将框移到签名上，或提高墨迹灵敏度。
 	Couldn't use the photo: {e}	无法使用该照片：{e}
+	Save as New Searchable PDF	另存为新的可搜索 PDF
+	Save as New Searchable PDF…	另存为新的可搜索 PDF…

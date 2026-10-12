@@ -370,7 +370,14 @@ impl PdfCraftApp {
             "export.image" => self.dialog = Some(Dialog::Export(crate::export_ui::ExportKind::Image)),
             "export.text" => self.dialog = Some(Dialog::Export(crate::export_ui::ExportKind::Text)),
             "a11y.check" => self.start_accessibility_check(),
-            "ocr.recognize" => self.dialog = Some(Dialog::RecognizeText),
+            "ocr.recognize" | "ocr.create_searchable_copy" => {
+                let restricted = self.active_ids().and_then(|(_, id)| self.session.get(id)).is_some_and(|d| !d.allows_modification());
+                self.ocr_draft.mode =
+                    if restricted || id == "ocr.create_searchable_copy" { crate::ocr_ui::OcrMode::Copy } else { crate::ocr_ui::OcrMode::Modify };
+                self.ocr_draft.authorize_derivative = false;
+                self.ocr_draft.overwrite = false;
+                self.dialog = Some(Dialog::RecognizeText);
+            }
             "tools.js_console" => self.dialog = Some(Dialog::JsConsole),
             "tools.document_js" => {
                 self.doc_js = Default::default();

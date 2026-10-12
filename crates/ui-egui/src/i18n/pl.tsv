@@ -2263,3 +2263,7 @@ scroll speed	Fast	Szybka
 	Ink sensitivity	Czułość na atrament
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	W ramce nie znaleziono podpisu. Przesuń ramkę na podpis lub zwiększ czułość na atrament.
 	Couldn't use the photo: {e}	Nie można użyć zdjęcia: {e}
+
+# Fork searchable-copy command
+	Save as New Searchable PDF	Zapisz jako nowy PDF z możliwością wyszukiwania
+	Save as New Searchable PDF…	Zapisz jako nowy PDF z możliwością wyszukiwania…

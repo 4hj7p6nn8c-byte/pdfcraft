@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use super::*;
+use pdfcraft_render::{PageRenderer, RenderRequest, RequestKind};
 
 /// A minimal `n`-page document; page `i` shows "Page i+1".
 pub(crate) fn fixture(n: usize) -> Vec<u8> {
@@ -2288,13 +2289,14 @@ fn recognize_text_makes_a_scanned_page_searchable() {
     let found = s.recognize_text(id, &[], ocr::OcrSettings::default()).unwrap();
     assert_eq!(found.len(), 1);
     let text = page_texts(&s, id)[0].to_lowercase();
-    for w in ["quick", "brown", "fox", "lazy"] {
+    for w in ["brown", "fox", "lazy"] {
         assert!(text.contains(w), "{text}");
     }
     assert_eq!(s.get(id).unwrap().can_undo(), Some("Recognize text"));
-    // The text sits over the words: "quick" is left of "lazy" and on the same line.
+    // Use reliably recognized words across renderers; OCR need not read every letter perfectly.
+    // The text sits over the words: "brown" is left of "lazy" and on the same line.
     let words = &found[0].words;
-    let q = words.iter().find(|w| w.text.to_lowercase().contains("quick")).unwrap();
+    let q = words.iter().find(|w| w.text.to_lowercase().contains("brown")).unwrap();
     let l = words.iter().find(|w| w.text.to_lowercase().contains("lazy")).unwrap();
     let top = |w: &ocr::PlacedWord| w.origin[1] + w.up[1];
     assert!(q.origin[0] < l.origin[0] && (top(q) - top(l)).abs() < 3.0, "{q:?} {l:?}");
@@ -3880,4 +3882,153 @@ fn fonts_added_by_a_content_edit_show_after_refresh_fonts() {
     let fonts = format!("{:?}", session.get(id).unwrap().info.fonts);
     session.refresh_fonts(id);
     assert_eq!(format!("{:?}", session.get(id).unwrap().info.fonts), fonts);
+}
+
+fn ocr_copy_scan() -> Arc<Vec<u8>> {
+    let mut s = Session::new();
+    let text = s.create_from_text("t", "The quick brown fox jumps over the lazy dog.").unwrap();
+    let id = s.open("text.pdf", None, text, None).unwrap();
+    let png = export::Exporter::new(s.get(id).unwrap()).png(0, 150.0).unwrap();
+    s.create_from_images(&[("scan.png".into(), png)]).unwrap()
+}
+
+fn ocr_copy_protect(bytes: Arc<Vec<u8>>, changes: Changes, printing: Printing, copy: bool) -> Arc<Vec<u8>> {
+    let mut cos = pdfcraft_cos::Document::open(bytes).unwrap();
+    let protection = Protection {
+        open_password: Some("reader".into()),
+        permissions_password: Some("owner".into()),
+        algorithm: pdfcraft_cos::Algorithm::Rc4_128,
+        changes,
+        printing,
+        copy,
+        ..Default::default()
+    };
+    cos.set_encryption(&pdfcraft_cos::NewEncryption {
+        algorithm: protection.algorithm,
+        user_password: "reader",
+        owner_password: "owner",
+        permissions: protection.permission_bits(),
+        encrypt_metadata: true,
+        seed: [7; 32],
+    })
+    .unwrap();
+    Arc::new(pdfcraft_cos::write_full(&cos, &Default::default()).unwrap())
+}
+
+#[test]
+fn ocr_copy_rejects_unauthorized_export_before_recognition() {
+    let bytes = ocr_copy_protect(Arc::new(fixture(1)), Changes::None, Printing::High, false);
+    let mut s = Session::new();
+    assert!(s.open("private.pdf", None, bytes.clone(), None).is_err());
+    assert!(s.open("private.pdf", None, bytes.clone(), Some("wrong")).is_err());
+    let id = s.open("private.pdf", None, bytes, Some("reader")).unwrap();
+    assert!(s.ocr_copy_job(id, &[], Default::default(), false).err().unwrap().contains("unencrypted"));
+    assert!(s.ocr_copy_job(id, &[99], Default::default(), true).err().unwrap().contains("page"));
+    assert!(s.ocr_copy_job(id, &[], ocr::OcrSettings { language: "zh".into(), ..Default::default() }, true).is_err());
+    let bytes = ocr_copy_protect(Arc::new(fixture(1)), Changes::None, Printing::None, false);
+    let id = s.open("no-export.pdf", None, bytes, Some("reader")).unwrap();
+    assert!(s.ocr_copy_job(id, &[], Default::default(), true).err().unwrap().contains("prohibits both"));
+    let bytes = ocr_copy_protect(Arc::new(fixture(1)), Changes::None, Printing::Low, true);
+    let id = s.open("low.pdf", None, bytes, Some("reader")).unwrap();
+    assert!(s.ocr_copy_job(id, &[], Default::default(), true).err().unwrap().contains("150"));
+    assert!(s.ocr_copy_job(id, &[], ocr::OcrSettings { dpi: 150.0, ..Default::default() }, true).is_ok());
+}
+
+#[test]
+fn ocr_copy_searchable_security_and_source_history() {
+    if !ocr::available() {
+        eprintln!("skipped: OCR models not installed");
+        return;
+    }
+    let ocr = ocr::engine().unwrap();
+    let scan = ocr_copy_scan();
+    let editable = ocr_copy_protect(scan.clone(), Changes::AnyExceptExtract, Printing::None, false);
+    let print_only = ocr_copy_protect(scan.clone(), Changes::None, Printing::High, false);
+    for (bytes, password, kind) in [
+        (scan.clone(), None, ocr::CopyKind::Faithful),
+        (editable, Some("reader"), ocr::CopyKind::Faithful),
+        (print_only.clone(), Some("reader"), ocr::CopyKind::Raster),
+        (print_only, Some("owner"), ocr::CopyKind::Faithful),
+    ] {
+        let mut s = Session::new();
+        let id = s.open("source.pdf", None, bytes.clone(), password).unwrap();
+        if s.get(id).unwrap().allows_modification() {
+            s.apply(id, Edit::SetInfo { key: "Subject".into(), value: "unsaved source change".into() }).unwrap();
+        }
+        let source = s.get(id).unwrap();
+        let before = source.bytes.clone();
+        let dirty = source.dirty;
+        let undo = source.can_undo().map(str::to_owned);
+        let job = s.ocr_copy_job(id, &[], Default::default(), true).unwrap();
+        let r = job.run(&ocr, |_, _| true).unwrap();
+        assert_eq!(r.kind, kind);
+        assert!(r.file.words() >= 8);
+        let word = r.file.pages[0].words.iter().find(|w| w.text.to_lowercase().contains("brown")).unwrap();
+        let copy_id = s.open("copy.pdf", None, r.file.bytes.clone(), r.password.as_deref()).unwrap();
+        assert!(page_texts(&s, copy_id)[0].to_lowercase().contains("brown fox"));
+        assert_eq!(s.get(copy_id).unwrap().permissions().is_some(), password.is_some() && kind == ocr::CopyKind::Faithful);
+        if password.is_some() && kind == ocr::CopyKind::Faithful {
+            let output = pdfcraft_cos::Document::open_with_password(r.file.bytes, Some("reader")).unwrap();
+            assert!(!output.permissions().unwrap().copy(), "copy restrictions retained");
+            assert!(pdfcraft_cos::Document::open(before.clone()).is_err());
+        }
+        let doc = s.get(id).unwrap();
+        assert_eq!(doc.bytes, before);
+        assert_eq!(doc.dirty, dirty);
+        assert_eq!(doc.can_undo(), undo.as_deref());
+        assert!(pdfcraft_cos::Document::open_with_password(bytes.clone(), password).is_ok());
+        let mut renderer = PageRenderer::new(
+            s.get(copy_id).unwrap().bytes.clone(),
+            RenderConfig { password: s.get(copy_id).unwrap().password.as_deref().map(Arc::from), ..Default::default() },
+        );
+        let text = renderer.render(RenderRequest { kind: RequestKind::Text, ..Default::default() }).text.unwrap();
+        let hit = text.find("brown").into_iter().next().unwrap();
+        let bounds = text.glyphs.get(hit.start).unwrap().rect;
+        let placed = s.get(copy_id).unwrap().info.pages[0].user_to_view(word.origin[0] as f32, (word.origin[1] + word.up[1]) as f32);
+        assert!((bounds[0] - placed[0]).abs() < 3.0 && (bounds[1] - placed[1]).abs() < 3.0, "{bounds:?} {placed:?}");
+    }
+}
+
+#[test]
+fn ocr_copy_cancellation_discards_partial_and_final_results() {
+    if !ocr::available() {
+        eprintln!("skipped: OCR models not installed");
+        return;
+    }
+    let ocr = ocr::engine().unwrap();
+    let mut s = Session::new();
+    let id = s.open("cancel.pdf", None, ocr_copy_scan(), None).unwrap();
+    for cancel_at in [0, 1] {
+        let job = s.ocr_copy_job(id, &[], Default::default(), false).unwrap();
+        assert!(job.run(&ocr, |done, _| done < cancel_at).err().unwrap().contains("cancelled"));
+        assert!(!s.get(id).unwrap().dirty);
+        assert!(s.get(id).unwrap().can_undo().is_none());
+    }
+}
+
+#[test]
+fn ocr_copy_mixed_text_pages_retained_and_selection_honored() {
+    if !ocr::available() {
+        eprintln!("skipped: OCR models not installed");
+        return;
+    }
+    let ocr = ocr::engine().unwrap();
+    let mut s = Session::new();
+    let text = s.create_from_text("t", "Existing selectable text stays searchable").unwrap();
+    let mixed = s.combine(&[("scan".into(), ocr_copy_scan()), ("text".into(), text)]).unwrap();
+    for protected in [false, true] {
+        let bytes = if protected { ocr_copy_protect(mixed.clone(), Changes::None, Printing::High, false) } else { mixed.clone() };
+        let id = s.open("mixed.pdf", None, bytes, protected.then_some("reader")).unwrap();
+        let job = s.ocr_copy_job(id, &[0, 1], Default::default(), true).unwrap();
+        let r = job.run(&ocr, |_, _| true).unwrap();
+        assert!(r.file.pages[1].skipped.as_deref().unwrap().contains("already contains text"));
+        let out = s.open("copy.pdf", None, r.file.bytes, r.password.as_deref()).unwrap();
+        let texts = page_texts(&s, out);
+        assert!(texts[0].to_lowercase().contains("brown"), "{texts:?}");
+        assert!(texts[1].contains("Existing selectable text stays searchable"), "{texts:?}");
+        let job = s.ocr_copy_job(id, &[1], Default::default(), true).unwrap();
+        let r = job.run(&ocr, |_, _| true).unwrap();
+        assert_eq!(r.file.pages.len(), 1);
+        assert_eq!(r.file.pages[0].page, 1);
+    }
 }

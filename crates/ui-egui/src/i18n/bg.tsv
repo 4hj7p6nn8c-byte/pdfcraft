@@ -2246,3 +2246,5 @@ scroll speed	Fast	Висока
 	Ink sensitivity	Чувствителност към мастило
 	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	В рамката не е открит подпис. Преместете рамката върху подписа или увеличете чувствителността към мастило.
 	Couldn't use the photo: {e}	Снимката не може да се използва: {e}
+	Save as New Searchable PDF	Запазване като нов PDF с търсене
+	Save as New Searchable PDF…	Запазване като нов PDF с търсене…
